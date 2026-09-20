@@ -1,0 +1,25 @@
+services:
+  hub:
+    build: .
+    image: ai-projects-hub
+    container_name: ai-projects-hub
+    ports:
+      - "7860:7860"
+    volumes:
+      # Results land on the host, so they survive the container.
+      - ./output:/app/output
+      # Files added through the Document Library, and the search index built
+      # from them.
+      - ./semantic_search/data:/app/semantic_search/data
+      # Downloaded model weights. Without this every rebuild refetches them.
+      - model-cache:/cache
+    environment:
+      # No display and no camera in here, so the live webcam windows are off.
+      # Everything else — uploads, video files, search — works normally.
+      HUB_HEADLESS: "1"
+      HUB_HOST: "0.0.0.0"
+      HUB_PORT: "7860"
+    restart: unless-stopped
+
+volumes:
+  model-cache:

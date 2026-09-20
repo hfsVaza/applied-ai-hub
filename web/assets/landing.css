@@ -1,0 +1,458 @@
+/* ============================================================================
+   Landing page
+   ========================================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--signal); color: #000; }
+
+a { color: inherit; text-decoration: none; }
+
+.shell { width: 100%; max-width: var(--measure); margin: 0 auto; padding: 0 var(--gutter); }
+
+/* Hidden from sight, still read aloud by screen readers. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --------------------------------------------------------------- overlays */
+
+/* Scanlines and grain sit above everything but never intercept a click. */
+.overlay {
+  position: fixed; inset: 0; pointer-events: none; z-index: 80;
+}
+
+.overlay--scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.016) 0px,
+    rgba(255,255,255,0.016) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+}
+
+.overlay--vignette {
+  background: radial-gradient(ellipse at 50% 40%, transparent 42%, rgba(0,0,0,0.55) 100%);
+}
+
+/* A faint drifting grain, kept subtle enough to read as sensor noise. */
+.overlay--grain {
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 5s steps(5) infinite;
+}
+@keyframes grain {
+  0%,100% { transform: translate(0,0); }
+  20% { transform: translate(-3%, 2%); }
+  40% { transform: translate(2%, -3%); }
+  60% { transform: translate(-2%, -2%); }
+  80% { transform: translate(3%, 1%); }
+}
+
+/* --------------------------------------------------------------- reticle */
+
+/* A cursor-following crosshair, the one piece of pure instrument theatre.
+   Disabled on touch devices, where there is no cursor to follow. */
+.reticle {
+  position: fixed; top: 0; left: 0; z-index: 90;
+  pointer-events: none; opacity: 0;
+  transition: opacity var(--normal) var(--ease);
+  mix-blend-mode: screen;
+}
+.reticle.is-visible { opacity: 1; }
+.reticle__ring {
+  position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border: 1px solid var(--signal-edge); border-radius: 50%;
+  transition: width var(--fast) var(--ease), height var(--fast) var(--ease),
+              margin var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.reticle.is-hot .reticle__ring {
+  width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  border-color: var(--signal);
+}
+.reticle__dot {
+  position: absolute; width: 2px; height: 2px; margin: -1px 0 0 -1px;
+  background: var(--signal);
+}
+@media (hover: none) { .reticle { display: none; } }
+
+/* ------------------------------------------------------------------ chrome */
+
+.statusbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3) var(--gutter);
+  font-family: var(--mono); font-size: var(--t-micro);
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-dim);
+  background: linear-gradient(to bottom, rgba(7,8,9,0.94), rgba(7,8,9,0.72));
+  border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(14px);
+}
+.statusbar__group { display: flex; align-items: center; gap: var(--s4); }
+.statusbar__mark { color: var(--ink); letter-spacing: 0.2em; }
+
+.led {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  white-space: nowrap;
+}
+.led::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--idle); flex: none;
+}
+.led[data-state="live"]::before {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 rgba(61,220,151,0.7);
+  animation: pulse 2.4s var(--ease) infinite;
+}
+.led[data-state="warm"]::before { background: var(--warn); }
+.led[data-state="down"]::before { background: var(--alert); }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(61,220,151,0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(61,220,151,0); }
+  100% { box-shadow: 0 0 0 0 rgba(61,220,151,0); }
+}
+
+@media (max-width: 780px) { .statusbar__hide-sm { display: none; } }
+
+/* -------------------------------------------------------------------- hero */
+
+.hero {
+  position: relative; min-height: 100svh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: var(--s10) 0 var(--s8);
+  isolation: isolate;
+}
+
+/* The point-cloud canvas: literally the same idea as the depth project's
+   .ply export, rendered live behind the title. */
+#field {
+  position: absolute; inset: 0; z-index: -1;
+  width: 100%; height: 100%; display: block;
+  /* Fade the cloud away from the left column so the headline always has a
+     quiet background to sit on, whatever the surface is doing. */
+  -webkit-mask-image: linear-gradient(100deg, transparent 2%, rgba(0,0,0,0.42) 22%, #000 44%);
+  mask-image: linear-gradient(100deg, transparent 2%, rgba(0,0,0,0.42) 22%, #000 44%);
+}
+@media (max-width: 860px) {
+  #field {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 12%, #000 62%);
+    mask-image: linear-gradient(to bottom, transparent 12%, #000 62%);
+  }
+}
+
+.hero__grid {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(var(--rule) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: radial-gradient(ellipse at 50% 45%, #000 6%, transparent 72%);
+  opacity: 0.85;
+}
+
+.boot {
+  font-family: var(--mono); font-size: var(--t-tiny);
+  color: var(--ink-dim); letter-spacing: 0.08em;
+  min-height: 1.6em; margin-bottom: var(--s5);
+}
+.boot__cursor {
+  display: inline-block; width: 7px; height: 1em; margin-left: 2px;
+  background: var(--signal); vertical-align: text-bottom;
+  animation: blink 1.05s steps(2) infinite;
+}
+@keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+
+.hero__title {
+  font-family: var(--mono);
+  font-size: var(--t-h1);
+  font-weight: 600;
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  margin: 0 0 var(--s5);
+  text-wrap: balance;
+}
+.hero__title .dot { color: var(--signal); }
+
+/* Each word rises independently; the stagger is set inline from JS. Same
+   reasoning as .reveal: without JS the words simply sit where they belong. */
+.js .hero__title .word {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.42em);
+  animation: rise var(--slow) var(--ease-out) forwards;
+}
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+.hero__lede {
+  max-width: 54ch; margin: 0 0 var(--s7);
+  color: var(--ink-mid); font-size: var(--t-lead);
+  text-wrap: pretty;
+}
+.hero__lede strong { color: var(--ink); font-weight: 500; }
+
+.hero__actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; }
+
+/* ------------------------------------------------------------------ button */
+
+.btn {
+  position: relative; display: inline-flex; align-items: center; gap: var(--s3);
+  padding: var(--s4) var(--s6);
+  font-family: var(--mono); font-size: var(--t-small);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink);
+  background: var(--panel-raised);
+  border: 1px solid var(--rule-bright);
+  border-radius: var(--radius);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease),
+              background var(--fast) var(--ease), transform var(--fast) var(--ease);
+  will-change: transform;
+}
+.btn::after {
+  /* A sweep of light that crosses on hover. */
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 32%, var(--signal-glow) 50%, transparent 68%);
+  transform: translateX(-120%);
+  transition: transform var(--slow) var(--ease);
+}
+.btn:hover { border-color: var(--signal-edge); background: var(--panel-hover); }
+.btn:hover::after { transform: translateX(120%); }
+.btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+
+.btn--primary {
+  color: #01161a;
+  background: var(--signal);
+  border-color: var(--signal);
+  font-weight: 600;
+}
+.btn--primary:hover { background: #5ceaf6; border-color: #5ceaf6; }
+.btn--ghost { background: transparent; color: var(--ink-mid); }
+
+.btn__arrow { transition: transform var(--normal) var(--ease); }
+.btn:hover .btn__arrow { transform: translateX(4px); }
+
+/* ---------------------------------------------------------------- sections */
+
+.section { padding: var(--s10) 0; position: relative; }
+.section + .section { border-top: 1px solid var(--rule); }
+
+.section__head {
+  display: flex; align-items: baseline; gap: var(--s4);
+  margin-bottom: var(--s7); flex-wrap: wrap;
+}
+.section__index {
+  font-family: var(--mono); font-size: var(--t-tiny);
+  color: var(--signal); letter-spacing: 0.18em;
+}
+.section__title {
+  font-family: var(--mono); font-size: var(--t-h2); font-weight: 600;
+  letter-spacing: -0.025em; margin: 0;
+}
+.section__note {
+  margin: 0; color: var(--ink-dim); font-size: var(--t-small);
+  font-family: var(--mono); margin-left: auto;
+}
+
+/* Scroll reveal. The hidden state is applied only once JS has confirmed it
+   can run, via the .js class on <html>. Hiding content in the stylesheet
+   instead would leave the whole page blank if the script failed to load or
+   the observer never fired. */
+.js .reveal {
+  opacity: 0; transform: translateY(22px);
+  transition: opacity var(--slow) var(--ease-out), transform var(--slow) var(--ease-out);
+}
+.js .reveal.is-in { opacity: 1; transform: none; }
+
+/* ------------------------------------------------------------------- panel */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+.panel__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono); font-size: var(--t-micro);
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-dim);
+}
+
+/* ------------------------------------------------------------ readout grid */
+
+.readouts {
+  display: grid; gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  background: var(--rule);          /* the gap colour becomes the hairlines */
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.readout { background: var(--panel); padding: var(--s5); }
+.readout__label {
+  font-family: var(--mono); font-size: var(--t-micro);
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-dim);
+  margin-bottom: var(--s3);
+}
+.readout__value {
+  font-family: var(--mono); font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+  font-weight: 600; letter-spacing: -0.02em; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.readout__value .unit {
+  font-size: 0.5em; color: var(--ink-dim); margin-left: 4px;
+  font-weight: 400; letter-spacing: 0.06em;
+}
+.readout__sub {
+  font-family: var(--mono); font-size: var(--t-micro);
+  color: var(--ink-faint); margin-top: var(--s2);
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.cards {
+  display: grid; gap: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+}
+
+.card {
+  position: relative; display: flex; flex-direction: column;
+  min-height: 310px; padding: var(--s5);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden; cursor: pointer;
+  transition: border-color var(--normal) var(--ease),
+              background var(--normal) var(--ease),
+              transform var(--normal) var(--ease-out);
+  will-change: transform;
+}
+.card:hover, .card:focus-visible {
+  border-color: var(--rule-hot);
+  background: var(--panel-raised);
+  outline: none;
+}
+.card:focus-visible { border-color: var(--accent, var(--signal)); }
+
+/* A pointer-tracked glow. --mx/--my are written by JS on mouse move. */
+.card::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(
+    380px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 13%, transparent),
+    transparent 62%
+  );
+  opacity: 0; transition: opacity var(--normal) var(--ease);
+}
+.card:hover::before { opacity: 1; }
+
+/* The top rule lights up in the project's own colour. */
+.card::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: var(--accent);
+  transform: scaleX(0); transform-origin: left;
+  transition: transform var(--slow) var(--ease-out);
+}
+.card:hover::after { transform: scaleX(1); }
+
+.card__viz {
+  height: 96px; margin: calc(var(--s5) * -1) calc(var(--s5) * -1) var(--s5);
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-deep);
+}
+.card__viz canvas { display: block; width: 100%; height: 100%; }
+
+.card__no {
+  font-family: var(--mono); font-size: var(--t-micro);
+  color: var(--accent); letter-spacing: 0.18em; margin-bottom: var(--s3);
+}
+.card__title {
+  font-family: var(--mono); font-size: var(--t-h3); font-weight: 600;
+  margin: 0 0 var(--s3); letter-spacing: -0.02em;
+}
+.card__body {
+  margin: 0 0 var(--s5); color: var(--ink-mid);
+  font-size: var(--t-small); line-height: 1.62;
+}
+.card__foot {
+  margin-top: auto; display: flex; align-items: center;
+  justify-content: space-between; gap: var(--s3);
+  font-family: var(--mono); font-size: var(--t-micro);
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim);
+  padding-top: var(--s4); border-top: 1px solid var(--rule);
+}
+.card__go { color: var(--accent); transition: transform var(--normal) var(--ease); }
+.card:hover .card__go { transform: translateX(4px); }
+
+.tag {
+  display: inline-block; padding: 2px var(--s2);
+  border: 1px solid var(--rule-bright); border-radius: 2px;
+  font-family: var(--mono); font-size: var(--t-micro);
+  color: var(--ink-dim); letter-spacing: 0.08em;
+}
+
+/* -------------------------------------------------------------- spec table */
+
+.specs { display: grid; gap: 1px; background: var(--rule);
+         border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; }
+.spec {
+  display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) minmax(0,2fr);
+  gap: var(--s4); align-items: baseline;
+  padding: var(--s4) var(--s5); background: var(--panel);
+  transition: background var(--fast) var(--ease);
+}
+.spec:hover { background: var(--panel-raised); }
+.spec__name { font-family: var(--mono); font-size: var(--t-small); color: var(--ink); }
+.spec__figure {
+  font-family: var(--mono); font-size: var(--t-small); font-weight: 600;
+  color: var(--signal); font-variant-numeric: tabular-nums;
+}
+.spec__note { font-size: var(--t-small); color: var(--ink-dim); }
+@media (max-width: 720px) {
+  .spec { grid-template-columns: 1fr auto; row-gap: var(--s1); }
+  .spec__note { grid-column: 1 / -1; }
+}
+
+/* ------------------------------------------------------------------- log */
+
+.log {
+  font-family: var(--mono); font-size: var(--t-tiny);
+  max-height: 210px; overflow-y: auto; padding: var(--s4);
+  scrollbar-width: thin; scrollbar-color: var(--rule-bright) transparent;
+}
+.log__line { display: flex; gap: var(--s3); padding: 3px 0; color: var(--ink-dim); }
+.log__time { color: var(--ink-faint); flex: none; }
+.log__msg { color: var(--ink-mid); }
+.log__line[data-level="ok"]   .log__msg { color: var(--ok); }
+.log__line[data-level="warn"] .log__msg { color: var(--warn); }
+.log__line[data-level="err"]  .log__msg { color: var(--alert); }
+
+/* ---------------------------------------------------------------- footer */
+
+.footer {
+  border-top: 1px solid var(--rule);
+  padding: var(--s7) 0 var(--s8);
+  font-family: var(--mono); font-size: var(--t-tiny); color: var(--ink-faint);
+}
+.footer__row { display: flex; flex-wrap: wrap; gap: var(--s5); justify-content: space-between; }
+.footer a:hover { color: var(--signal); }

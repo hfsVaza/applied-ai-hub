@@ -1,0 +1,29 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Generated media. These patterns match exactly what the four projects write,
+# so your own source images and sample videos are still tracked normally.
+output/
+anonymized_*
+*_pointcloud.ply
+*_mesh.ply
+*_raw_depth.npy
+*_sbs_*.png
+*_sbs_*.mp4
+*_depth_*.png
+*_depth_*.mp4
+
+# Files people add through the Document Library
+semantic_search/data/library/
+
+# OS and editor cruft
+.DS_Store
+.idea/
+.vscode/

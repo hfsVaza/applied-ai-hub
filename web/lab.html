@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resolve — tuning lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Archivo:wght@400..900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #07080a; overflow: hidden; }
+  #stage { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+
+  .hud {
+    position: fixed; left: 16px; bottom: 16px; z-index: 10;
+    font: 500 11px/1.7 'IBM Plex Mono', monospace;
+    color: #5d6874; letter-spacing: 0.12em; text-transform: uppercase;
+    pointer-events: none;
+  }
+  .hud b { color: #37e2f0; font-weight: 500; }
+
+  .scrub {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    z-index: 10; width: min(560px, 72vw);
+    display: flex; align-items: center; gap: 12px;
+    font: 500 10px/1 'IBM Plex Mono', monospace;
+    color: #5d6874; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .scrub input { flex: 1; accent-color: #37e2f0; }
+  .note {
+    position: fixed; right: 16px; bottom: 16px; z-index: 10;
+    font: 400 11px/1.6 'IBM Plex Mono', monospace; color: #39424c;
+    text-align: right; pointer-events: none;
+  }
+  .lil-gui { --width: 300px; z-index: 20 !important; }
+</style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<div class="hud">
+  grid <b id="grid">—</b> · <b id="fps">—</b> fps · <b id="cells">—</b> cells
+</div>
+
+<div class="scrub">
+  <span>coarse</span>
+  <input id="res" type="range" min="0" max="1" step="0.001" value="1">
+  <span>resolved</span>
+</div>
+
+<p class="note">
+  space — play / pause auto-sweep<br>
+  the panel is the design. drag things.
+</p>
+
+<script type="module">
+import GUI from 'https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.esm.js';
+import { Resolve, RAMPS, DEFAULTS, textSource, webcamSource } from '/static/resolve.js';
+
+const canvas = document.getElementById('stage');
+const resolve = new Resolve(canvas);
+
+/* ---------------------------------------------------------------- sources */
+
+const state = {
+  source: 'text',
+  text: 'FOUR MODELS | ZERO UPLOADS',
+  sweep: true,
+  sweepSpeed: 0.35,
+  resolution: 1,
+  softness: 0.55,
+  fit: 0.86,
+};
+
+let imageEl = null;
+
+async function buildSource() {
+  if (state.source === 'text') {
+    const lines = state.text.split('|').map((t) => t.trim()).filter(Boolean);
+    resolve.setSource(textSource(lines, {
+      // Match the viewport aspect, otherwise the source is letterboxed into
+      // the grid and the type floats in a band of dead space.
+      width: 1600,
+      height: Math.round(1600 * (canvas.clientHeight / canvas.clientWidth)),
+      font: resolve.opts.font, weight: 700,
+      softness: state.softness, fit: state.fit,
+    }));
+  } else if (state.source === 'webcam') {
+    try {
+      resolve.setSource(await webcamSource());
+    } catch (e) {
+      console.warn('camera refused:', e);
+      state.source = 'text';
+      buildSource();
+    }
+  } else if (state.source === 'image' && imageEl) {
+    resolve.setSource(imageEl);
+  }
+}
+
+function loadImage(url) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { imageEl = img; state.source = 'image'; resolve.setSource(img); };
+  img.src = url;
+}
+
+/* -------------------------------------------------------------------- GUI */
+
+const gui = new GUI({ title: 'resolve' });
+
+const fSource = gui.addFolder('source');
+fSource.add(state, 'source', ['text', 'webcam', 'image']).onChange(buildSource);
+fSource.add(state, 'text').name('text ( | splits lines )').onFinishChange(buildSource);
+fSource.add(state, 'softness', 0, 2, 0.01).name('source softness').onFinishChange(buildSource);
+fSource.add(state, 'fit', 0.4, 1, 0.01).name('fill frame').onFinishChange(buildSource);
+fSource.add({ pick: () => {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.onchange = () => input.files[0] && loadImage(URL.createObjectURL(input.files[0]));
+  input.click();
+} }, 'pick').name('load an image…');
+
+const fGrid = gui.addFolder('grid');
+fGrid.add(resolve.opts, 'cell', 3, 40, 1).name('cell size');
+fGrid.add(resolve.opts, 'charAspect', 0.3, 1.2, 0.01).name('cell aspect');
+fGrid.add(resolve.opts, 'mode', ['ascii', 'blocks']);
+fGrid.add(resolve.opts, 'ramp', Object.keys(RAMPS));
+fGrid.add(resolve.opts, 'font', ['IBM Plex Mono', 'Space Mono', 'Archivo', 'monospace']);
+fGrid.add(resolve.opts, 'fontScale', 0.5, 2, 0.01).name('glyph size');
+
+const fTone = gui.addFolder('tone');
+fTone.add(resolve.opts, 'brightness', -1, 1, 0.01);
+fTone.add(resolve.opts, 'contrast', 0, 3, 0.01);
+fTone.add(resolve.opts, 'gamma', 0.2, 3, 0.01);
+fTone.add(resolve.opts, 'threshold', 0, 0.5, 0.005).name('cut below');
+fTone.add(resolve.opts, 'invert');
+
+const fColour = gui.addFolder('colour');
+fColour.addColor(resolve.opts, 'bg').name('background');
+fColour.addColor(resolve.opts, 'fg').name('foreground');
+fColour.addColor(resolve.opts, 'accent');
+fColour.add(resolve.opts, 'accentAt', 0, 1, 0.01).name('accent above');
+fColour.add(resolve.opts, 'tint').name('blend fg\u2192accent');
+fColour.add(resolve.opts, 'floor', 0, 1, 0.01).name('faintest cell');
+
+const fMotion = gui.addFolder('motion');
+fMotion.add(resolve.opts, 'jitter', 0, 6, 0.1).name('sensor shimmer');
+fMotion.add(state, 'sweep').name('auto sweep');
+fMotion.add(state, 'sweepSpeed', 0.05, 1.5, 0.01).name('sweep speed');
+
+gui.add({ dump: () => {
+  const out = JSON.stringify(resolve.opts, null, 2);
+  console.log(out);
+  navigator.clipboard?.writeText(out);
+  alertless('settings copied to clipboard + console');
+} }, 'dump').name('copy settings as JSON');
+
+gui.add({ link: () => {
+  // A shareable URL of exactly this look, so a good one is never lost.
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(resolve.opts)) {
+    if (v !== DEFAULTS[k]) q.set(k, typeof v === 'boolean' ? (v ? 1 : 0) : v);
+  }
+  q.set('r', state.resolution.toFixed(3));
+  q.set('sweep', state.sweep ? 1 : 0);
+  if (state.source !== 'text') q.set('source', state.source);
+  const url = `${location.origin}${location.pathname}?${q}`;
+  history.replaceState(null, '', url);
+  navigator.clipboard?.writeText(url);
+  alertless('URL copied — bookmark this look');
+} }, 'link').name('copy look as URL');
+
+function alertless(msg) {
+  const el = document.querySelector('.note');
+  const prev = el.innerHTML;
+  el.innerHTML = msg;
+  setTimeout(() => { el.innerHTML = prev; }, 1800);
+}
+
+/* ------------------------------------------------- restore state from URL */
+
+/* Any option can be set in the query string, so a look you like is a
+   bookmarkable URL: /lab?cell=7&ramp=blocks&fg=%23ff0055&r=0.4&sweep=0 */
+(function applyUrlState() {
+  const q = new URLSearchParams(location.search);
+  for (const [key, raw] of q) {
+    if (key === 'r') { state.resolution = parseFloat(raw); continue; }
+    if (key === 'sweep') { state.sweep = raw !== '0' && raw !== 'false'; continue; }
+    if (key === 'text') { state.text = raw; continue; }
+    if (key === 'source') { state.source = raw; continue; }
+    if (!(key in resolve.opts)) continue;
+    const current = resolve.opts[key];
+    resolve.opts[key] =
+      typeof current === 'number'  ? parseFloat(raw) :
+      typeof current === 'boolean' ? (raw !== '0' && raw !== 'false') : raw;
+  }
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+  document.getElementById('res').value = state.resolution;
+})();
+
+/* ------------------------------------------------------------------ drive */
+
+const slider = document.getElementById('res');
+slider.addEventListener('input', () => {
+  state.sweep = false;
+  state.resolution = parseFloat(slider.value);
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+});
+
+addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); state.sweep = !state.sweep; }
+});
+
+const gridEl = document.getElementById('grid');
+const fpsEl = document.getElementById('fps');
+const cellsEl = document.getElementById('cells');
+
+let t = 0, frames = 0, lastReport = performance.now();
+
+function loop(now) {
+  if (state.sweep) {
+    t += 0.016 * state.sweepSpeed;
+    // A smooth there-and-back sweep, so the effect is always in motion while
+    // tuning and you can see how it behaves across the whole range.
+    state.resolution = (Math.sin(t) * 0.5 + 0.5);
+    slider.value = state.resolution;
+  }
+
+  resolve.render(state.resolution);
+
+  frames++;
+  if (now - lastReport > 500) {
+    const { cols, rows } = resolve.gridSize;
+    gridEl.textContent = `${cols}×${rows}`;
+    cellsEl.textContent = (cols * rows).toLocaleString();
+    fpsEl.textContent = Math.round((frames * 1000) / (now - lastReport));
+    frames = 0; lastReport = now;
+  }
+  requestAnimationFrame(loop);
+}
+
+addEventListener('resize', () => { resolve.resize(); if (state.source === 'text') buildSource(); });
+
+// Wait for the webfont before rasterising text, or the source bakes in a
+// fallback face and every glyph measurement is wrong.
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(async () => {
+  resolve.resize();
+  await buildSource();
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>

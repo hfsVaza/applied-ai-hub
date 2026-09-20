@@ -1,0 +1,10 @@
+# Dependencies for running the face anonymizer standalone.
+# The root ../requirements.txt covers all four hub projects at once.
+opencv-python>=4.9
+mediapipe>=0.10.14
+transformers>=4.40
+torch>=2.2
+torchvision>=0.17
+Pillow>=10.0
+numpy>=1.26
+tqdm>=4.66

@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Applied AI Programming</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --silver: #c0c0c0;
+    --moss:   #669c35;
+    --wine:   #791a3e;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--silver); }
+  body {
+    margin: 0; background: var(--silver); color: var(--wine);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The canvas is pinned; the tall spacer below is what actually scrolls. */
+  #film  { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+  #track { position: relative; z-index: 1; pointer-events: none; }
+
+  /* ---- preloader ---- */
+  #boot {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--silver); color: var(--wine);
+    display: grid; place-content: center; gap: 14px;
+    font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+    transition: opacity 700ms cubic-bezier(.16,1,.3,1);
+  }
+  #boot.done { opacity: 0; pointer-events: none; }
+  #bootbar { width: 220px; height: 2px; background: rgba(121,26,62,0.22); overflow: hidden; }
+  #bootbar i { display: block; height: 100%; width: 0%; background: var(--wine); transition: width 240ms linear; }
+
+  /* ---- fixed chrome ---- */
+  .chrome {
+    position: fixed; z-index: 20; font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase; color: var(--wine);
+    mix-blend-mode: multiply;
+  }
+  .chrome--tl { top: 20px; left: 22px; }
+  .chrome--br { bottom: 20px; right: 22px; }
+
+  /* ---- scroll cue ----
+     Centred rather than tucked in a corner, because this is the only
+     instruction the page gives and the whole film depends on it being
+     followed. A travelling segment reads as an instrument's own indicator
+     rather than as a generic bouncing arrow. */
+  #hint {
+    position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%);
+    z-index: 25; display: grid; justify-items: center; gap: 20px;
+    color: var(--wine);
+    transition: opacity 450ms ease;
+  }
+  #hint .label {
+    font-size: clamp(15px, 1.55vw, 27px); font-weight: 700;
+    letter-spacing: 0.34em; text-transform: uppercase;
+    /* Reversed out of a solid block rather than set on the background. The
+       film is scattered across the whole canvas here, so the page's one
+       instruction reads as a labelled control instead of floating text. */
+    color: var(--silver);
+    background: var(--wine);
+    padding: 13px 22px 13px calc(22px + 0.34em);
+    box-shadow: 0 0 0 9px var(--silver);
+  }
+  #hint .rail {
+    position: relative; width: 7px; height: 112px;
+    background: var(--silver); overflow: hidden;
+    box-shadow: 0 0 0 7px var(--silver);
+  }
+  #hint .rail::before {
+    content: ''; position: absolute; left: 2px; top: 0;
+    width: 3px; height: 100%; background: rgba(121, 26, 62, 0.3);
+  }
+  #hint .rail::after {
+    content: ''; position: absolute; left: 0; top: 0;
+    width: 7px; height: 40px; background: var(--wine);
+    animation: cue 2s cubic-bezier(.45,0,.25,1) infinite;
+  }
+  @keyframes cue {
+    0%   { transform: translateY(-40px); opacity: 0; }
+    18%  { opacity: 1; }
+    72%  { opacity: 1; }
+    100% { transform: translateY(112px); opacity: 0; }
+  }
+  #hint .chev {
+    font-size: 26px; line-height: 1; font-weight: 700; opacity: 1;
+    background: var(--silver); box-shadow: 0 0 0 7px var(--silver);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #hint .rail::after { animation: none; transform: translateY(36px); opacity: 1; }
+  }
+
+  /* ---- the four buttons the text pours into ---- */
+  #picks {
+    position: fixed; left: 0; right: 0; z-index: 30;
+    transform: translateY(-50%);   /* centred on the floor the cells land on */
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 14px; padding: 0 clamp(16px, 4vw, 56px);
+    pointer-events: none;
+  }
+  .pick {
+    position: relative;
+    display: grid; gap: 12px; padding: 28px 26px;
+    text-decoration: none; color: var(--wine);
+    background: transparent;        /* the fill is the poured ASCII beneath */
+    border: 1px solid var(--wine);
+    opacity: 0;                     /* JS drives this as the material lands */
+    transform: translateY(14px);
+    transition: background 180ms ease, color 180ms ease;
+    pointer-events: none;
+  }
+  #picks.live .pick { pointer-events: auto; }
+  .pick i { font-style: normal; font-size: clamp(11px, 0.8vw, 15px); letter-spacing: 0.22em; opacity: 0.5; }
+  .pick b {
+    font-size: clamp(20px, 2.5vw, 44px);
+    /* Tracking has to come down as the size goes up, or the longest label
+       stops fitting its box at narrow widths. */
+    letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
+    line-height: 1.1;
+  }
+  .pick { min-height: clamp(240px, 32vh, 360px); align-content: center; }
+  .pick span {
+    font-size: clamp(11px, 0.8vw, 15px);
+    letter-spacing: 0.08em; opacity: 0.66; text-transform: uppercase; line-height: 1.45;
+  }
+  .pick:hover { background: var(--wine); color: var(--silver); }
+  .pick:hover b, .pick:hover i, .pick:hover span { position: relative; z-index: 1; }
+  .pick:hover i, .pick:hover span { opacity: 0.85; }
+  /* Hover has to darken the ASCII label sitting over the button too. */
+  .pick::after {
+    content: ''; position: absolute; inset: 0; background: var(--wine);
+    opacity: 0; transition: opacity 180ms ease; pointer-events: none;
+    mix-blend-mode: multiply;
+  }
+  .pick:hover::after { opacity: 0.12; }
+  .pick:focus-visible { outline: 2px solid var(--moss); outline-offset: 3px; }
+
+  @media (max-width: 760px) {
+    #picks { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .pick { padding: 18px 16px; min-height: 175px; }
+    .pick b { font-size: clamp(17px, 5vw, 26px); }
+    .pick span { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="boot">
+  <div>loading</div>
+  <div id="bootbar"><i></i></div>
+</div>
+
+<canvas id="film"></canvas>
+
+<div class="chrome chrome--tl">AI.PROJECTS.HUB</div>
+<div id="hint" aria-hidden="true">
+  <span class="label">Scroll</span>
+  <span class="rail"></span>
+  <span class="chev">↓</span>
+</div>
+
+<nav id="picks">
+  <a class="pick" href="/app?p=anon">   <i>01</i><b>Anonymize</b><span>occlusion-aware face blur</span></a>
+  <a class="pick" href="/app?p=depth">  <i>02</i><b>Depth</b><span>2D photo into 3D geometry</span></a>
+  <a class="pick" href="/app?p=pose">   <i>03</i><b>Reps</b><span>pose tracking and counting</span></a>
+  <a class="pick" href="/app?p=search"> <i>04</i><b>Search</b><span>documents by meaning</span></a>
+</nav>
+
+<div id="track"></div>
+
+<script>
+window.__err = [];
+addEventListener('error', (e) => { window.__err.push(String(e.message || e.error)); document.title = 'ERR ' + window.__err.join(' | '); });
+addEventListener('unhandledrejection', (e) => { window.__err.push(String(e.reason)); document.title = 'ERR ' + window.__err.join(' | '); });
+</script>
+<script type="module">
+import Lenis from 'https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.mjs';
+import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/index.js';
+import { ScrollTrigger } from 'https://cdn.jsdelivr.net/npm/gsap@3.12.5/ScrollTrigger.js';
+import { Resolve, textSource } from '/static/resolve.js';
+
+gsap.registerPlugin(ScrollTrigger);
+
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas  = document.getElementById('film');
+const picksEl = document.getElementById('picks');
+const pickEls = [...document.querySelectorAll('.pick')];
+const hintEl  = document.getElementById('hint');
+const bootEl  = document.getElementById('boot');
+const barEl   = document.querySelector('#bootbar i');
+
+const TITLE = ['APPLIED', 'AI', 'PROGRAMMING'];
+
+const LOOK = {
+  cell: 9, charAspect: 0.43, fontScale: 0.99,
+  brightness: 0.05, contrast: 2.6, gamma: 1.8, threshold: 0.185,
+  fg: '#669c35', bg: '#c0c0c0', accent: '#791a3e', accentAt: 0.45,
+  tint: true, floor: 0.15, mode: 'ascii', ramp: 'ascii', font: 'IBM Plex Mono',
+};
+
+/* The beats of the film, as fractions of total scroll. These are the numbers
+   worth tuning by eye — how long the title holds before it gives way, and how
+   much of the scroll the pour occupies. */
+const FILM = {
+  revealFrom: 0.00, revealTo: 0.26,   // title resolves out of noise
+  holdTo:     0.44,                   // ...and holds, intact
+  meltFrom:   0.44, meltTo:   0.88,   // ...then pours
+  picksFrom:  0.70, picksTo:  0.94,   // buttons rise as the piles land
+  shotVh:     420,                    // total scroll length
+  lerp:       0.085,
+  maxJitter:  1.8,
+  pourRamp:   'blocks',
+};
+
+const MELT = {
+  meltFloor: 0.635, meltPile: 0.055, meltStagger: 0.42,
+  meltConverge: 1, meltSpread: 0.045, meltFade: 0.42,
+  morphScatter: 0.035, morphSag: 0.05,
+};
+
+const resolve = new Resolve(canvas, { ...LOOK, ...MELT });
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smoothstep = (a, b, x) => {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+/* ---------------------------------------------------------------- loading */
+
+async function prepare() {
+  let done = 0;
+  const step = () => { barEl.style.width = `${Math.round((++done / 2) * 100)}%`; };
+
+  // Fonts first: type rasterised before the face loads is measured against a
+  // fallback, and the whole composition shifts when the real one swaps in.
+  if (document.fonts) await document.fonts.ready;
+  step();
+
+  const w = canvas.clientWidth || 1600;
+  const h = canvas.clientHeight || 900;
+  resolve.setSource(textSource(TITLE, {
+    width: 1600, height: Math.round(1600 * (h / w)),
+    font: LOOK.font, weight: 700, fit: 0.78, softness: 0.55,
+    // Leave the foot of the frame clear for the scroll cue.
+    padBottom: 0.21,
+  }));
+  step();
+}
+
+/* --------------------------------------------------------------- the film */
+
+let progress = 0;
+
+function frame() {
+  const p = progress;
+
+  // 1. the title resolves out of the grid, then holds
+  const resolution = smoothstep(FILM.revealFrom, FILM.revealTo, p);
+
+  // 2. it gives way and pours into four piles
+  const melt = smoothstep(FILM.meltFrom, FILM.meltTo, p);
+
+  // 3. the buttons rise where the piles land
+  const picks = smoothstep(FILM.picksFrom, FILM.picksTo, p);
+
+  resolve.opts.melt = melt;
+
+  // The title is legible because its ramp is made of characters; scattered,
+  // those same characters read as corruption. So the material stops being
+  // type once it tears loose — intact text is glyphs, poured matter is
+  // blocks. The swap lands mid-pour, when everything is already in flight and
+  // nothing holds a readable shape to pop.
+  resolve.opts.ramp = melt > 0.45 ? FILM.pourRamp : LOOK.ramp;
+
+  // Instability while the grid is still forming, and again as it tears apart.
+  resolve.opts.jitter = (1 - resolution) * FILM.maxJitter
+                      + melt * (1 - melt) * FILM.maxJitter * 2;
+  resolve.render(resolution);
+
+  // Each button arrives slightly after the one to its left, so they land in
+  // sequence rather than appearing as one block.
+  pickEls.forEach((el, i) => {
+    const local = clamp((picks - i * 0.06) / Math.max(1 - i * 0.06, 1e-3), 0, 1);
+    const eased = 1 - Math.pow(1 - local, 3);
+    el.style.opacity = String(eased);
+    el.style.transform = `translateY(${(1 - eased) * 14}px)`;
+  });
+  picksEl.classList.toggle('live', picks > 0.85);
+
+  hintEl.style.opacity = p > 0.04 ? '0' : '1';
+}
+
+/**
+ * Draw the four button labels into an offscreen canvas at exactly the
+ * positions the real buttons occupy. This is what the title reassembles into,
+ * so the spilled letters become the button text rather than piling on top of
+ * it.
+ */
+function buildMorphTarget() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // getBoundingClientRect includes transforms, and these buttons spend most
+  // of the film offset downward by their entrance animation. Measuring them
+  // mid-animation aimed the whole pour below where they finally sit, leaving
+  // a band of material stranded under each one. Neutralise the transform for
+  // the measurement, then put it back.
+  const saved = pickEls.map((el) => el.style.transform);
+  pickEls.forEach((el) => { el.style.transform = 'none'; });
+
+  // The target is the button's whole body, not its text. At this cell size a
+  // label occupies barely a hundred cells, so the letters collapse into
+  // specks; a filled rectangle is a low-frequency shape the grid can actually
+  // hold, and it lets the poured material become the button's fill.
+  pickEls.forEach((el) => {
+    const r = el.getBoundingClientRect();
+    // A glyph is drawn centred in its cell at roughly the cell's height, so a
+    // cell sitting on the boundary overflows by half a glyph. Insetting by a
+    // full cell is what keeps the material inside the border.
+    const inset = resolve.opts.cell * 1.2;
+    const grad = ctx.createLinearGradient(0, r.top, 0, r.bottom);
+    // Denser toward the bottom, so the fill settles like something poured
+    // rather than sitting as a flat block.
+    grad.addColorStop(0, 'rgba(255,255,255,0.68)');
+    grad.addColorStop(1, 'rgba(255,255,255,1)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(r.left + inset, r.top + inset,
+                 r.width - inset * 2, r.height - inset * 2);
+
+    // Punch a void where the type sits. Nothing targets a black region, so
+    // the material flows around the label instead of settling on top of it
+    // and fighting it for legibility.
+    ctx.fillStyle = '#000';
+    const pad = 7;
+    [...el.children].forEach((kid) => {
+      const k = kid.getBoundingClientRect();
+      if (k.width > 0 && k.height > 0) {
+        ctx.fillRect(k.left - pad, k.top - pad * 0.7,
+                     k.width + pad * 2, k.height + pad * 1.4);
+      }
+    });
+  });
+  ctx.fillStyle = '#fff';
+
+  pickEls.forEach((el, i) => { el.style.transform = saved[i]; });
+  resolve.setMorphTarget(c);
+}
+
+/**
+ * Sit the buttons on the floor the cells land on, then aim the pour at their
+ * real centres.
+ *
+ * The targets were hardcoded fractions, which drifted from the buttons as
+ * soon as padding, gaps or the mobile breakpoint changed the layout. Reading
+ * the rendered geometry keeps the streams landing exactly on the buttons at
+ * any width.
+ */
+function placePicks() {
+  picksEl.style.top = `${resolve.opts.meltFloor * 100}%`;
+
+  const w = canvas.clientWidth || innerWidth;
+  const centres = pickEls.map((el) => {
+    const r = el.getBoundingClientRect();
+    return (r.left + r.width / 2) / w;   // x is unaffected by the Y transform
+  });
+  if (centres.length && centres.every((c) => c > 0 && c < 1)) {
+    resolve.opts.meltTargets = centres;
+  }
+  buildMorphTarget();
+}
+
+/* ----------------------------------------------------------------- scroll */
+
+const params = new URLSearchParams(location.search);
+const PINNED = params.has('p') ? clamp(parseFloat(params.get('p')), 0, 1) : null;
+const AT_END = params.get('at') === 'end';
+
+/* Any renderer option or film beat can be overridden from the query string,
+   so looks can be compared side by side without editing the file:
+   /hero?p=0.99&pourRamp=ascii&meltFade=0.7&cell=14
+   Both objects are covered: FILM holds the timing and the pour ramp, while
+   resolve.opts holds everything the renderer itself reads. */
+for (const [k, raw] of params) {
+  const target = k in resolve.opts ? resolve.opts : (k in FILM ? FILM : null);
+  if (!target) continue;
+  const cur = target[k];
+  target[k] = typeof cur === 'number'  ? parseFloat(raw)
+            : typeof cur === 'boolean' ? (raw !== '0' && raw !== 'false')
+            : raw;
+}
+
+function wire() {
+  if (PINNED !== null) {
+    progress = PINNED;
+    gsap.ticker.add(frame);
+    document.documentElement.style.overflow = 'hidden';
+    return;
+  }
+
+  const track = document.getElementById('track');
+  track.style.height = `${FILM.shotVh}vh`;
+
+  const lenis = new Lenis({ lerp: FILM.lerp, wheelMultiplier: 0.9, smoothWheel: !reduced });
+
+  // One clock for Lenis, ScrollTrigger and the canvas. Two competing rAF
+  // loops is what makes this genre of site feel janky.
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add((time) => lenis.raf(time * 1000));
+  gsap.ticker.lagSmoothing(0);
+
+  ScrollTrigger.create({
+    trigger: track, start: 'top top', end: 'bottom bottom',
+    onUpdate: (self) => { progress = self.progress; },
+  });
+
+  if (AT_END) {
+    // Returning from a project lands on the buttons, not back at the top.
+    ScrollTrigger.refresh();
+    lenis.scrollTo(document.documentElement.scrollHeight - innerHeight,
+                   { immediate: true, force: true });
+    progress = 1;
+  }
+
+  gsap.ticker.add(frame);
+  addEventListener('resize', () => {
+    resolve.resize(); placePicks(); ScrollTrigger.refresh();
+  });
+
+  if (params.has('debug')) mountDebug({ lenis, track });
+}
+
+/* -------------------------------------------------------------- debug GUI */
+
+async function mountDebug({ lenis, track }) {
+  const { default: GUI } = await import('https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.esm.js');
+  const gui = new GUI({ title: 'film' });
+
+  const b = gui.addFolder('beats');
+  b.add(FILM, 'revealTo', 0.05, 0.6, 0.01).name('title resolved by');
+  b.add(FILM, 'meltFrom', 0.1, 0.8, 0.01).name('pour starts');
+  b.add(FILM, 'meltTo', 0.3, 1, 0.01).name('pour ends');
+  b.add(FILM, 'picksFrom', 0.3, 1, 0.01).name('buttons from');
+  b.add(FILM, 'picksTo', 0.4, 1, 0.01).name('buttons by');
+  b.add(FILM, 'shotVh', 150, 800, 10).name('scroll length')
+    .onChange((v) => { track.style.height = `${v}vh`; ScrollTrigger.refresh(); });
+  b.add(FILM, 'lerp', 0.02, 0.3, 0.005).name('scroll weight')
+    .onChange((v) => { lenis.options.lerp = v; });
+  b.add(FILM, 'maxJitter', 0, 10, 0.1).name('instability');
+  b.add(FILM, 'pourRamp', ['blocks','minimal','dots','ascii','binary']).name('poured matter');
+
+  const m = gui.addFolder('the pour');
+  m.add(resolve.opts, 'meltFloor', 0.3, 0.9, 0.005).name('floor')
+    .onChange(() => placePicks());
+  m.add(resolve.opts, 'meltStagger', 0, 1, 0.01).name('stagger');
+  m.add(resolve.opts, 'meltConverge', 0, 1, 0.01).name('gather into piles');
+  m.add(resolve.opts, 'meltSpread', 0, 0.25, 0.005).name('pile width');
+  m.add(resolve.opts, 'meltPile', 0, 0.3, 0.005).name('pile height');
+  m.add(resolve.opts, 'meltFade', 0, 1, 0.01).name('dim on landing');
+  m.add(resolve.opts, 'morphScatter', 0, 0.4, 0.005).name('target scatter');
+  m.add(resolve.opts, 'morphSag', -0.2, 0.3, 0.005).name('stream sag');
+
+  const l = gui.addFolder('look');
+  l.add(resolve.opts, 'cell', 3, 30, 1).name('cell size').onChange(() => resolve.morphKey = '');
+  l.add(resolve.opts, 'charAspect', 0.3, 1.2, 0.01).name('cell aspect');
+  l.add(resolve.opts, 'contrast', 0, 3, 0.01);
+  l.add(resolve.opts, 'gamma', 0.2, 3, 0.01);
+  l.add(resolve.opts, 'threshold', 0, 0.6, 0.005).name('cut below');
+  l.addColor(resolve.opts, 'bg').name('background');
+  l.addColor(resolve.opts, 'fg').name('foreground');
+  l.addColor(resolve.opts, 'accent');
+  l.add(resolve.opts, 'accentAt', 0, 1, 0.01).name('accent above');
+
+  gui.add({ dump: () => {
+    const out = { FILM, MELT: { ...MELT, meltFloor: resolve.opts.meltFloor }, LOOK: {
+      cell: resolve.opts.cell, charAspect: resolve.opts.charAspect,
+      contrast: resolve.opts.contrast, gamma: resolve.opts.gamma,
+      threshold: resolve.opts.threshold, bg: resolve.opts.bg,
+      fg: resolve.opts.fg, accent: resolve.opts.accent, accentAt: resolve.opts.accentAt,
+    } };
+    console.log(JSON.stringify(out, null, 2));
+    navigator.clipboard?.writeText(JSON.stringify(out, null, 2));
+  } }, 'dump').name('copy all settings');
+}
+
+/* ------------------------------------------------------------------- init */
+
+(async function start() {
+  resolve.resize();
+  placePicks();
+  await prepare();
+
+  // The jump to the end happens inside wire(), underneath the preloader, so
+  // the film is never seen racing past.
+  if (AT_END) bootEl.style.transition = 'opacity 180ms linear';
+  wire();
+  bootEl.classList.add('done');
+  setTimeout(() => bootEl.remove(), AT_END ? 220 : 800);
+  frame();
+})();
+</script>
+</body>
+</html>

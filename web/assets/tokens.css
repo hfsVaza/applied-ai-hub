@@ -1,0 +1,88 @@
+/* ============================================================================
+   AI Projects Hub — design tokens
+   Dark lab instrument: near-black panels, hairline rules, monospace readouts,
+   one cyan signal colour reserved for live/active state so it never becomes
+   decoration.
+   ========================================================================= */
+
+:root {
+  /* ---- surfaces: a deliberate ladder, each step barely above the last ---- */
+  --bg:            #070809;
+  --bg-deep:       #040506;
+  --panel:         #0c0e10;
+  --panel-raised:  #121519;
+  --panel-hover:   #161a1f;
+
+  /* ---- hairlines. Instrument panels are defined by their rules ---- */
+  --rule:          #1b1f24;
+  --rule-bright:   #272d34;
+  --rule-hot:      #2f3944;
+
+  /* ---- type ---- */
+  --ink:           #dfe4e9;
+  --ink-mid:       #98a2ad;
+  --ink-dim:       #5d6874;
+  --ink-faint:     #39424c;
+
+  /* ---- signal colours. Cyan means live. Nothing else may use it. ---- */
+  --signal:        #37e2f0;
+  --signal-deep:   #0891a8;
+  --signal-glow:   rgba(55, 226, 240, 0.14);
+  --signal-edge:   rgba(55, 226, 240, 0.34);
+
+  --ok:            #3ddc97;
+  --warn:          #f2b134;
+  --alert:         #ff5c5c;
+  --idle:          #4a5560;
+
+  /* ---- per-project accents, used only as identifying tints ---- */
+  --p1: #37e2f0;   /* anonymizer */
+  --p2: #a78bfa;   /* depth      */
+  --p3: #3ddc97;   /* pose       */
+  --p4: #f2b134;   /* search     */
+
+  /* ---- type scale ---- */
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --t-micro: 0.625rem;
+  --t-tiny:  0.6875rem;
+  --t-small: 0.8125rem;
+  --t-body:  0.9375rem;
+  --t-lead:  1.125rem;
+
+  /* Display sizes fluidly track the viewport so the hero fills a phone and a
+     30-inch monitor equally well without a pile of breakpoints. */
+  --t-h3: clamp(1.1rem, 2.2vw, 1.5rem);
+  --t-h2: clamp(1.6rem, 4vw, 2.75rem);
+  --t-h1: clamp(2.5rem, 9vw, 7rem);
+
+  /* ---- spacing, on a 4px grid ---- */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+  --s9: 96px; --s10: 144px;
+
+  --gutter: clamp(16px, 4vw, 56px);
+  --measure: 1440px;
+
+  /* ---- motion. Restrained: this is an instrument, not a toy. ---- */
+  --ease:      cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --fast:   140ms;
+  --normal: 280ms;
+  --slow:   620ms;
+
+  --radius: 3px;
+}
+
+/* Everything honours a reduced-motion preference: transitions collapse to
+   near-instant and the canvas field stops animating entirely. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --fast: 1ms; --normal: 1ms; --slow: 1ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,29 @@
+# Virtual environments — the image builds its own dependencies
+venv/
+.venv/
+env/
+**/venv/
+**/.venv/
+
+# Python bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Generated media and user-added files. These live in volumes, not the image.
+output/
+**/output/
+semantic_search/data/library/
+
+# Git and editor cruft
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/
+
+# Docker's own files
+Dockerfile
+.dockerignore
+docker-compose.yml

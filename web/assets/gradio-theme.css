@@ -1,0 +1,427 @@
+/* ============================================================================
+   Gradio restyle — carries the landing film's palette into the working app.
+
+   Silver ground, wine ink, moss for live state. Gradio's own class names move
+   between versions, so this leans on its CSS custom properties first and only
+   targets structural selectors where no variable exists for the job.
+   ========================================================================= */
+
+:root, .gradio-container {
+  --silver:      #c0c0c0;
+  --silver-hi:   #cbcbcb;   /* raised panels */
+  --silver-lo:   #b4b4b4;   /* wells and inputs */
+  --wine:        #791a3e;
+  --wine-soft:   rgba(121, 26, 62, 0.34);
+  --wine-faint:  rgba(121, 26, 62, 0.14);
+  --moss:        #669c35;
+  --ink:         #33262b;   /* body copy: warm near-black, not pure black */
+  --ink-dim:     #6b5b62;
+}
+
+/* Gradio's indigo primary scale is separate from --color-accent, and leaks
+   through on label spans and focus states even when the accent is overridden.
+   The whole ramp has to be remapped, not just the accent token. */
+.gradio-container, :root {
+  --primary-50:  #f7eaef !important;
+  --primary-100: #eed3dd !important;
+  --primary-200: #ddaabb !important;
+  --primary-300: #c87e97 !important;
+  --primary-400: #a84a6c !important;
+  --primary-500: #791a3e !important;
+  --primary-600: #6c1737 !important;
+  --primary-700: #5b132e !important;
+  --primary-800: #4a0f26 !important;
+  --primary-900: #3a0c1e !important;
+  --primary-950: #260813 !important;
+}
+
+/* ---- Gradio's own tokens do most of the work ---- */
+.gradio-container, :root {
+  --body-background-fill: var(--silver) !important;
+  --background-fill-primary: var(--silver-hi) !important;
+  --background-fill-secondary: var(--silver-lo) !important;
+  --block-background-fill: var(--silver-hi) !important;
+  --block-border-color: var(--wine-soft) !important;
+  --block-label-background-fill: transparent !important;
+  --block-label-text-color: var(--ink-dim) !important;
+  --block-title-text-color: var(--wine) !important;
+  --border-color-primary: var(--wine-soft) !important;
+  --border-color-accent: var(--wine) !important;
+  --body-text-color: var(--ink) !important;
+  --body-text-color-subdued: var(--ink-dim) !important;
+  --color-accent: var(--wine) !important;
+  --color-accent-soft: var(--wine-faint) !important;
+  --link-text-color: var(--wine) !important;
+  --input-background-fill: var(--silver-lo) !important;
+  --input-border-color: var(--wine-soft) !important;
+  --button-primary-background-fill: var(--wine) !important;
+  --button-primary-background-fill-hover: #8f2049 !important;
+  --button-primary-text-color: var(--silver) !important;
+  --button-secondary-background-fill: transparent !important;
+  --button-secondary-border-color: var(--wine-soft) !important;
+  --button-secondary-text-color: var(--wine) !important;
+  --panel-background-fill: var(--silver-hi) !important;
+  --table-even-background-fill: var(--silver-hi) !important;
+  --table-odd-background-fill: var(--silver-lo) !important;
+  --radius-sm: 0 !important;
+  --radius-lg: 0 !important;
+}
+
+body, gradio-app {
+  background: var(--silver) !important;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace !important;
+  color: var(--ink) !important;
+}
+
+/* Fill the window rather than sitting in a 1500px column. These are working
+   tools with galleries, 3D viewers and side-by-side previews; the horizontal
+   room is worth more than a comfortable reading measure. Prose blocks are
+   capped separately below so body copy does not run to 2000px lines. */
+.gradio-container,
+.gradio-container > .main,
+.gradio-container .wrap > .contain {
+  max-width: 100% !important;
+  width: 100% !important;
+  background: var(--silver) !important;
+}
+.gradio-container {
+  padding: 0 clamp(16px, 2.2vw, 48px) !important;
+}
+
+/* Long paragraphs still need a sane measure even in a full-width shell. */
+.prose > p, .prose > ul, .prose > ol { max-width: 105ch; }
+
+
+/* Gradio paints a group's background with the *border* token and lets child
+   blocks sit on top so the gaps read as hairlines. The group itself therefore
+   has to carry the panel fill, or the border colour shows through as a slab. */
+.gr-group, .styler, div[class*="group"] > .styler {
+  background: var(--silver-hi) !important;
+}
+
+.md, .prose, div[class*="markdown"], .gr-prose {
+  background: transparent !important;
+  color: var(--ink) !important;
+}
+
+/* ---- type ---- */
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-family: 'IBM Plex Mono', monospace !important;
+  color: var(--wine) !important;
+  letter-spacing: -0.01em !important;
+  font-weight: 700 !important;
+}
+.prose h2 { font-size: 1.7rem !important; }
+.prose p, .prose li { color: var(--ink) !important; }
+.prose strong { color: var(--wine) !important; font-weight: 600 !important; }
+.prose em { color: var(--ink-dim) !important; }
+.prose a { color: var(--wine) !important; text-underline-offset: 3px; }
+
+.prose code {
+  font-family: 'IBM Plex Mono', monospace !important;
+  background: var(--silver-lo) !important;
+  color: var(--wine) !important;
+  border: 1px solid var(--wine-soft) !important;
+  border-radius: 0 !important;
+  padding: 1px 5px !important;
+  font-size: 0.86em !important;
+}
+
+/* ---- labels read as instrument labels ---- */
+
+/* Gradio marks every field's caption with data-testid="block-info", and that
+   span carries an accent fill by default — an indigo chip behind each
+   dropdown title. The test id is the stable hook here; the element's only
+   class is a Svelte build hash that changes between releases. */
+[data-testid="block-info"],
+[data-testid="block-label"] {
+  background: transparent !important;
+  color: var(--ink-dim) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  font-weight: 500 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+label, .block-label, span[data-testid="block-label"], .gr-box > label > span {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-dim) !important;
+  font-weight: 500 !important;
+}
+
+/* ---- buttons ---- */
+
+button.lg, button.sm, .gr-button,
+button[class*="primary"], button[class*="secondary"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  border-radius: 0 !important;
+  border-width: 1px !important;
+  transition: background 160ms ease, color 160ms ease,
+              border-color 160ms ease, transform 160ms ease !important;
+}
+button[class*="secondary"]:hover:not(:disabled) {
+  background: var(--wine) !important;
+  color: var(--silver) !important;
+  border-color: var(--wine) !important;
+}
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(0); }
+
+/* The hub index's project buttons, echoing the landing film's cards. */
+.hub-card {
+  position: relative;
+  border-radius: 0 !important;
+  min-height: 118px !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 1.05rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  white-space: pre-line !important;
+  text-align: left !important;
+  padding: 22px 24px !important;
+  background: transparent !important;
+  border: 1px solid var(--wine) !important;
+  color: var(--wine) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  line-height: 1.5 !important;
+  overflow: hidden !important;
+}
+.hub-card:hover {
+  background: var(--wine) !important;
+  color: var(--silver) !important;
+}
+
+/* ---- inputs ---- */
+
+input[type="text"], input[type="number"], textarea, .gr-input, select {
+  font-family: 'IBM Plex Mono', monospace !important;
+  border-radius: 0 !important;
+  background: var(--silver-lo) !important;
+  border: 1px solid var(--wine-soft) !important;
+  color: var(--ink) !important;
+}
+input::placeholder, textarea::placeholder { color: var(--ink-dim) !important; opacity: 0.7; }
+input:focus, textarea:focus, select:focus {
+  border-color: var(--wine) !important;
+  box-shadow: 0 0 0 3px var(--wine-faint) !important;
+  outline: none !important;
+}
+
+/* ---- blocks, tabs, accordions ---- */
+
+.block, .form, .gr-panel, .panel {
+  border-radius: 0 !important;
+  border-color: var(--wine-soft) !important;
+}
+
+.tab-nav, div[class*="tab-nav"] {
+  border-bottom: 1px solid var(--wine-soft) !important;
+  gap: 4px !important;
+}
+.tab-nav button, div[class*="tab-nav"] button {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  color: var(--ink-dim) !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  transition: color 150ms ease, border-color 150ms ease !important;
+}
+.tab-nav button:hover, div[class*="tab-nav"] button:hover { color: var(--wine) !important; }
+.tab-nav button.selected, div[class*="tab-nav"] button.selected {
+  color: var(--wine) !important;
+  border-bottom-color: var(--wine) !important;
+  background: transparent !important;
+}
+
+/* ---- upload zones read as drop bays ---- */
+
+.file-preview, .upload-container, div[class*="upload"] {
+  border-radius: 0 !important;
+  border: 1px dashed var(--wine-soft) !important;
+  background: var(--silver-lo) !important;
+  color: var(--ink-dim) !important;
+}
+.upload-container:hover, div[class*="upload"]:hover {
+  border-color: var(--wine) !important;
+  background: var(--silver-hi) !important;
+}
+
+/* ---- progress ---- */
+
+.progress-bar, div[class*="progress"] > div { background: var(--wine) !important; }
+.progress-text, div[class*="progress-text"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  color: var(--wine) !important;
+}
+
+/* ---- controls ---- */
+
+input[type="range"] { accent-color: var(--wine) !important; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--wine) !important; }
+
+/* Radio and checkbox chips ship as dark neutral-600 pills with an indigo
+   selected state, which on a silver ground left the labels unreadable. The
+   component ignores the theme's colour variables entirely, so each chip is
+   styled directly. data-testid is the stable hook: the only class on these
+   elements is a Svelte build hash that changes between releases. */
+label[data-testid$="-radio-label"],
+label[data-testid$="-checkbox-label"] {
+  background: var(--silver-lo) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--wine-soft) !important;
+  border-radius: 0 !important;
+  padding: 9px 15px !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  font-weight: 500 !important;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease !important;
+}
+label[data-testid$="-radio-label"] span,
+label[data-testid$="-checkbox-label"] span {
+  color: inherit !important;
+  background: transparent !important;
+}
+label[data-testid$="-radio-label"]:hover,
+label[data-testid$="-checkbox-label"]:hover {
+  border-color: var(--wine) !important;
+  color: var(--wine) !important;
+}
+label[data-testid$="-radio-label"].selected,
+label[data-testid$="-checkbox-label"].selected {
+  background: var(--wine) !important;
+  color: var(--silver) !important;
+  border-color: var(--wine) !important;
+  font-weight: 600 !important;
+}
+/* The native dot is hidden inside a chip: the fill already reports the state,
+   and the control itself renders as a dark blob unselected and an off-colour
+   one selected, since accent-color cannot be inverted cleanly. Visually
+   hidden rather than display:none, so it stays focusable and keyboard
+   selection still works. */
+label[data-testid$="-radio-label"] input,
+label[data-testid$="-checkbox-label"] input {
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 1px !important; height: 1px !important;
+  margin: 0 !important; pointer-events: none;
+}
+label[data-testid$="-radio-label"]:focus-within,
+label[data-testid$="-checkbox-label"]:focus-within {
+  outline: 2px solid var(--moss); outline-offset: 2px;
+}
+
+/* Standalone checkboxes keep their control, so it needs to read on silver. */
+.gradio-container input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 15px !important; height: 15px !important;
+  border: 1px solid var(--wine) !important;
+  background: var(--silver-lo) !important;
+  border-radius: 0 !important;
+  cursor: pointer; position: relative;
+  vertical-align: middle;
+}
+.gradio-container input[type="checkbox"]:checked {
+  background: var(--wine) !important;
+}
+.gradio-container input[type="checkbox"]:checked::after {
+  content: ''; position: absolute; left: 4px; top: 0px;
+  width: 4px; height: 9px;
+  border: solid var(--silver); border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ---- tables and search results ---- */
+
+.prose table { border-color: var(--wine-soft) !important; font-size: 0.85rem !important; }
+.prose th {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  color: var(--wine) !important;
+  border-color: var(--wine-soft) !important;
+  background: var(--silver-lo) !important;
+}
+.prose td { border-color: var(--wine-soft) !important; color: var(--ink) !important; }
+.prose blockquote {
+  border-left: 3px solid var(--wine) !important;
+  background: var(--silver-lo) !important;
+  color: var(--ink) !important;
+  padding: 10px 14px !important;
+  margin: 8px 0 !important;
+}
+.prose hr { border-color: var(--wine-soft) !important; }
+
+/* ---- the bar back to the film ---- */
+
+#hub-bar {
+  position: sticky; top: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 12px 4px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--wine-soft);
+  background: rgba(192, 192, 192, 0.94);
+  backdrop-filter: blur(12px);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--ink-dim);
+}
+#hub-bar a { color: var(--wine); text-decoration: none; font-weight: 600; transition: opacity 150ms; }
+#hub-bar a:hover { opacity: 0.65; }
+#hub-bar .dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--moss); margin-right: 7px; vertical-align: middle;
+}
+
+/* The in-project back link, styled as a control rather than body copy. */
+.back-link {
+  display: inline-flex; align-items: center;
+  padding: 10px 18px; margin-bottom: 6px;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.6875rem; letter-spacing: 0.18em; text-transform: uppercase;
+  font-weight: 600;
+  color: var(--wine); text-decoration: none;
+  border: 1px solid var(--wine); border-radius: 0;
+  transition: background 160ms ease, color 160ms ease;
+}
+.back-link:hover { background: var(--wine); color: var(--silver); }
+
+footer { display: none !important; }
+
+/* ---- scrollbars ---- */
+
+* { scrollbar-width: thin; scrollbar-color: var(--wine-soft) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--silver); }
+::-webkit-scrollbar-thumb { background: var(--wine-soft); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--wine); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important; animation-duration: 0.01ms !important;
+  }
+}

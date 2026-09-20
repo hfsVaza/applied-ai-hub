@@ -1,0 +1,7 @@
+# Dependencies for running the pose estimator standalone.
+# The root ../requirements.txt covers all four hub projects at once.
+mediapipe>=0.10.14
+opencv-python>=4.9
+numpy>=1.26
+matplotlib>=3.8
+tqdm>=4.66
