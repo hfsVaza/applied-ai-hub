@@ -21,9 +21,11 @@ from pathlib import Path
 
 import cv2
 import gradio as gr
+import numpy as np
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +44,7 @@ from depth_visualizer import (  # noqa: E402
     process_image as depth_process_image,
     process_video as depth_process_video,
 )
-from main import LIVE_PARSE_SIZE, FaceAnonymizer  # noqa: E402
+from main import LIVE_PARSE_SIZE, MAX_PARSE_SIZE, FaceAnonymizer  # noqa: E402
 from pose_counter import EXERCISE_NAMES, PoseProcessor, process_video_file as pose_process_video  # noqa: E402
 from search_engine import SEARCH_METHODS, build_default_engine  # noqa: E402
 from file_library import (  # noqa: E402
@@ -55,8 +57,9 @@ from file_library import (  # noqa: E402
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 # Where to listen, and whether this process has a display and a camera to use.
-# Inside a container there is neither, so HUB_HEADLESS=1 turns off the live
-# webcam windows and leaves the rest of the hub working normally.
+# Inside a container there is neither, so HUB_HEADLESS=1 swaps the native
+# webcam windows for in-browser streaming: the browser owns the camera and
+# sends frames to the server, which sends the processed frames back.
 HUB_HOST = os.environ.get("HUB_HOST", "127.0.0.1")
 HUB_PORT = int(os.environ.get("HUB_PORT", "7860"))
 HEADLESS = os.environ.get("HUB_HEADLESS", "").lower() in ("1", "true", "yes")
@@ -225,9 +228,12 @@ def get_library():
     return _models["library"]
 
 
-def configured_anonymizer(mode, blur_intensity):
+def configured_anonymizer(mode, blur_intensity, parse_size=MAX_PARSE_SIZE):
+    """The cached model is shared by file and live work, so every caller sets
+    the segmentation size it wants rather than inheriting the last one used."""
     model = get_face_anonymizer(mode)
     model.blur_intensity = blur_intensity
+    model.parse_size = parse_size
     return model
 
 
@@ -423,6 +429,79 @@ def pose_stop_cam():
     return "Stopping tracker."
 
 
+# ------------------------------------------------ browser webcam streaming
+
+# In headless mode the browser owns the webcam and streams frames here, so the
+# live projects work in a container, where there is no camera to open and no
+# display to draw a window on. Gradio frames are RGB; the models expect BGR.
+#
+# The anonymizer does not use Gradio's streaming webcam: that one needs a
+# record click and always shows the raw camera beside the output. Instead a
+# small script in GRADIO_HEAD posts JPEG frames to /api/anon/frame and shows
+# only what comes back.
+
+STREAM_EVERY = 0.1   # seconds between frames the browser sends (rep counter)
+
+
+def anon_browser_frame(jpeg_bytes, mode, blur):
+    """Anonymize one JPEG frame from the browser's webcam; return a JPEG.
+
+    Returns None if the bytes are not a decodable image.
+    """
+    frame = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        return None
+    model = configured_anonymizer(mode, blur, parse_size=LIVE_PARSE_SIZE)
+
+    start = time.time()
+    output = model.process_frame(frame)
+    fps = 1.0 / max(time.time() - start, 1e-6)
+
+    cv2.putText(output, f"{mode} | blur {model.blur_intensity} | {fps:.0f} FPS",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    ok, jpeg = cv2.imencode(".jpg", output, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return jpeg.tobytes() if ok else None
+
+
+def close_pose_session(session):
+    """Release a browser session's landmarker when the session ends."""
+    if session is not None:
+        session["processor"].close()
+
+
+def pose_stream_frame(frame, exercise, show_3d, session):
+    """Track and count one frame from the browser's webcam.
+
+    Each browser tab keeps its own PoseProcessor in `session`, so two tabs do
+    not share a rep count. Changing the exercise rebuilds it, which also
+    resets the count: the old count belongs to the old exercise.
+    """
+    if frame is None:
+        return None, session
+    if session is None or (session["exercise"], session["show_3d"]) != (exercise, show_3d):
+        close_pose_session(session)
+        session = {
+            "exercise": exercise,
+            "show_3d": show_3d,
+            "processor": PoseProcessor(exercise=exercise, show_3d=show_3d),
+            "fps": None,
+        }
+
+    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    start = time.time()
+    output = session["processor"].process_frame(bgr, fps=session["fps"])
+    session["fps"] = 1.0 / max(time.time() - start, 1e-6)
+    return cv2.cvtColor(output, cv2.COLOR_BGR2RGB), session
+
+
+def pose_stream_reset(session):
+    """Zero the count in place. Closing the processor here instead would pull
+    it out from under a frame the stream may be processing at this moment."""
+    if session is not None:
+        session["processor"].counter.reset()
+    return "Counter reset."
+
+
 # ------------------------------------------------------ project 4: search
 
 def perform_search(query, search_method, top_k):
@@ -612,6 +691,107 @@ GRADIO_HEAD = """
   new MutationObserver(mount).observe(document.documentElement, {childList: true, subtree: true});
   mount();
 })();
+
+// Live anonymizer in headless mode (see build_anon_browser_cam). While the
+// output image is on screen: open the camera, then repeatedly grab a frame,
+// POST it as a JPEG, and show the anonymized JPEG that comes back. The next
+// frame is sent only after the previous answer arrives, so a slow model lowers
+// the frame rate instead of piling up requests. Leaving the tab stops the
+// camera, which also turns off the camera light.
+(function () {
+  var stream = null;     // the camera's MediaStream while it is open
+  var starting = false;  // waiting for the permission prompt
+  var blocked = false;   // permission refused; retry only after leaving the tab
+  var lastUrl = null;    // object URL of the frame on screen, freed when replaced
+
+  function byId(id) { return document.getElementById(id); }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function setMsg(text) {
+    var msg = byId('anon-live-msg');
+    if (msg) msg.textContent = text;
+  }
+
+  // offsetParent is null when the element or a parent is display:none, which
+  // is how Gradio hides inactive tabs and pages.
+  function onScreen() {
+    var out = byId('anon-live-out');
+    return !!out && out.offsetParent !== null && !document.hidden;
+  }
+
+  function readControls() {
+    var mode = document.querySelector('#anon-live-mode input:checked');
+    var blur = document.querySelector('#anon-live-blur input[type=number]');
+    return { mode: mode ? mode.value : 'basic', blur: blur ? blur.value : '51' };
+  }
+
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = null;
+  }
+
+  async function startCamera() {
+    starting = true;
+    setMsg('Waiting for camera permission...');
+    try {
+      var s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      if (onScreen()) { stream = s; loop(s); }
+      else s.getTracks().forEach(function (t) { t.stop(); });  // left while asking
+    } catch (err) {
+      blocked = true;
+      setMsg('Camera unavailable: ' + err.message);
+    }
+    starting = false;
+  }
+
+  async function loop(s) {
+    // The video element is never added to the page: it only decodes the
+    // camera so frames can be copied onto the canvas.
+    var video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = s;
+    await video.play();
+    var canvas = document.createElement('canvas');
+    setMsg('');
+
+    while (stream === s) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      var frame = await new Promise(function (r) { canvas.toBlob(r, 'image/jpeg', 0.8); });
+
+      var c = readControls();
+      try {
+        var res = await fetch('/api/anon/frame?mode=' + encodeURIComponent(c.mode) +
+                              '&blur=' + encodeURIComponent(c.blur),
+                              { method: 'POST', body: frame });
+        if (!res.ok) throw new Error('server returned ' + res.status);
+        var result = await res.blob();
+        var out = byId('anon-live-out');
+        if (out && stream === s) {
+          if (lastUrl) URL.revokeObjectURL(lastUrl);
+          lastUrl = URL.createObjectURL(result);
+          out.src = lastUrl;
+          setMsg('');
+        }
+      } catch (err) {
+        setMsg('Server not responding (' + err.message + '), retrying...');
+        await sleep(1000);
+      }
+    }
+  }
+
+  // Check twice a second whether the camera should be on or off.
+  setInterval(function () {
+    if (onScreen()) {
+      if (!stream && !starting && !blocked) startCamera();
+    } else {
+      stopCamera();
+      blocked = false;
+    }
+  }, 500);
+})();
 </script>
 """
 
@@ -620,6 +800,97 @@ GRADIO_HEAD = """
 # the version decides where they go.
 GRADIO_MAJOR = int(gr.__version__.split(".")[0])
 STYLE_KWARGS = {"theme": gr.themes.Soft()}
+
+
+BROWSER_CAM_NOTE = (
+    "Click the webcam box and allow camera access, then press record to start "
+    "streaming. Browsers only allow the camera on `localhost` or HTTPS, so "
+    "open the hub at http://localhost:7860 rather than by IP address."
+)
+
+
+def build_anon_native_cam():
+    """Live anonymizer controls that drive a native OpenCV window."""
+    gr.Markdown("Opens a fast native window. Press `q` there to close it.")
+    with gr.Row():
+        with gr.Column():
+            mode = gr.Radio(["basic", "perfect"], value="perfect", label="Anonymization mode")
+            blur = gr.Slider(11, 151, value=51, step=2, label="Blur intensity")
+        with gr.Column():
+            btn_start = gr.Button("Start Live Feed", variant="primary", size="lg")
+            btn_stop = gr.Button("Stop Live Feed")
+            status = gr.Textbox(label="Status", interactive=False)
+
+    mode.change(anon_update_mode, mode, status)
+    blur.change(anon_update_blur, blur, status)
+    btn_start.click(anon_start_cam, [mode, blur], status)
+    btn_stop.click(anon_stop_cam, None, status)
+
+
+def build_anon_browser_cam():
+    """Live anonymizer fed by the browser's webcam, for headless mode.
+
+    Only the anonymized output is shown. The script in GRADIO_HEAD finds these
+    elements by id, starts the camera while this tab is visible, and reads the
+    mode and blur controls on every frame, so they need no Gradio events.
+    """
+    gr.Markdown(
+        "Allow camera access when the browser asks and the anonymized feed "
+        "starts on its own. Browsers only allow the camera on `localhost` or "
+        "HTTPS, so open the hub at http://localhost:7860 rather than by IP address."
+    )
+    gr.HTML(
+        '<p id="anon-live-msg">Waiting for the camera...</p>'
+        '<img id="anon-live-out" alt="Anonymized webcam feed" '
+        'style="display:block; max-width:100%; max-height:460px; margin:0 auto;">'
+    )
+    with gr.Row():
+        # Basic by default: perfect mode segments every face on the CPU here,
+        # which is too slow to feel live on most machines. interactive=True is
+        # required: Gradio renders a component with no events as read-only.
+        gr.Radio(["basic", "perfect"], value="basic", label="Anonymization mode",
+                 info="Perfect is much slower without a GPU.", elem_id="anon-live-mode",
+                 interactive=True)
+        gr.Slider(11, 151, value=51, step=2, label="Blur intensity", elem_id="anon-live-blur",
+                  interactive=True)
+
+
+def build_pose_native_cam():
+    """Live rep counter controls that drive a native OpenCV window."""
+    gr.Markdown("Opens a fast native window. Press `q` there to close it.")
+    with gr.Row():
+        with gr.Column():
+            exercise = gr.Radio(EXERCISE_NAMES, value=EXERCISE_NAMES[0], label="Exercise")
+            show_3d = gr.Checkbox(label="Show 3D skeleton viewer", value=False)
+        with gr.Column():
+            btn_start = gr.Button("Start Live Tracker", variant="primary", size="lg")
+            btn_stop = gr.Button("Stop Tracker")
+            status = gr.Textbox(label="Status", interactive=False)
+
+    exercise.change(pose_update_exercise, exercise, status)
+    show_3d.change(pose_update_3d, show_3d, status)
+    btn_start.click(pose_start_cam, [exercise, show_3d], status)
+    btn_stop.click(pose_stop_cam, None, status)
+
+
+def build_pose_browser_cam():
+    """Live rep counter fed by the browser's webcam, for headless mode."""
+    gr.Markdown(BROWSER_CAM_NOTE)
+    session = gr.State(None, delete_callback=close_pose_session)
+    with gr.Row():
+        cam = gr.Image(sources=["webcam"], streaming=True, type="numpy",
+                       label="Your webcam", height=460)
+        out = gr.Image(label="Rep counter", height=460)
+    with gr.Row():
+        exercise = gr.Radio(EXERCISE_NAMES, value=EXERCISE_NAMES[0], label="Exercise")
+        with gr.Column():
+            show_3d = gr.Checkbox(label="Show 3D skeleton viewer", value=False)
+            btn_reset = gr.Button("Reset Counter")
+            status = gr.Markdown()
+
+    cam.stream(pose_stream_frame, [cam, exercise, show_3d, session], [out, session],
+               stream_every=STREAM_EVERY)
+    btn_reset.click(pose_stream_reset, session, status)
 
 
 def build_ui():
@@ -677,24 +948,10 @@ def build_ui():
                             anon_status = gr.Markdown()
 
                 with gr.Tab("Live Webcam"):
-                    gr.Markdown("Opens a fast native window. Press `q` there to close it.")
-                    with gr.Row():
-                        with gr.Column():
-                            anon_cam_mode = gr.Radio(["basic", "perfect"], value="perfect",
-                                                     label="Anonymization mode")
-                            anon_cam_blur = gr.Slider(11, 151, value=51, step=2,
-                                                      label="Blur intensity")
-                        with gr.Column():
-                            anon_btn_start = gr.Button("Start Live Feed",
-                                                       variant="primary", size="lg")
-                            anon_btn_stop = gr.Button("Stop Live Feed")
-                            anon_cam_status = gr.Textbox(label="Status", interactive=False)
-
-                    anon_cam_mode.change(anon_update_mode, anon_cam_mode, anon_cam_status)
-                    anon_cam_blur.change(anon_update_blur, anon_cam_blur, anon_cam_status)
-                    anon_btn_start.click(anon_start_cam, [anon_cam_mode, anon_cam_blur],
-                                         anon_cam_status)
-                    anon_btn_stop.click(anon_stop_cam, None, anon_cam_status)
+                    if HEADLESS:
+                        build_anon_browser_cam()
+                    else:
+                        build_anon_native_cam()
 
             def update_anon_vis(file):
                 if not file:
@@ -765,24 +1022,10 @@ def build_ui():
 
             with gr.Tabs():
                 with gr.Tab("Live Webcam (recommended)"):
-                    gr.Markdown("Opens a fast native window. Press `q` there to close it.")
-                    with gr.Row():
-                        with gr.Column():
-                            pose_ex_cam = gr.Radio(EXERCISE_NAMES, value=EXERCISE_NAMES[0],
-                                                   label="Exercise")
-                            pose_3d_cam = gr.Checkbox(label="Show 3D skeleton viewer",
-                                                      value=False)
-                        with gr.Column():
-                            pose_btn_start = gr.Button("Start Live Tracker",
-                                                       variant="primary", size="lg")
-                            pose_btn_stop = gr.Button("Stop Tracker")
-                            pose_cam_status = gr.Textbox(label="Status", interactive=False)
-
-                    pose_ex_cam.change(pose_update_exercise, pose_ex_cam, pose_cam_status)
-                    pose_3d_cam.change(pose_update_3d, pose_3d_cam, pose_cam_status)
-                    pose_btn_start.click(pose_start_cam, [pose_ex_cam, pose_3d_cam],
-                                         pose_cam_status)
-                    pose_btn_stop.click(pose_stop_cam, None, pose_cam_status)
+                    if HEADLESS:
+                        build_pose_browser_cam()
+                    else:
+                        build_pose_native_cam()
 
                 with gr.Tab("Upload Video"):
                     with gr.Row():
@@ -948,8 +1191,8 @@ def run_anon_webcam():
             # Re-read the controls each frame so UI changes take effect live,
             # and segment at a lower resolution than file processing uses so
             # the window stays responsive.
-            model = configured_anonymizer(hub_state['anon_mode'], hub_state['anon_blur'])
-            model.parse_size = LIVE_PARSE_SIZE
+            model = configured_anonymizer(hub_state['anon_mode'], hub_state['anon_blur'],
+                                          parse_size=LIVE_PARSE_SIZE)
 
             start = time.time()
             output = model.process_frame(frame)
@@ -1026,7 +1269,9 @@ def build_web_app(blocks):
         is invisible and deeply confusing while iterating on the design.
         """
         response = await call_next(request)
-        if request.url.path.startswith("/static/"):
+        # The HTML pages too: the film's tuning numbers live inline in them.
+        pages = ("/", "/hero", "/panel", "/lab")
+        if request.url.path.startswith("/static/") or request.url.path in pages:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
 
@@ -1049,6 +1294,20 @@ def build_web_app(blocks):
     def lab():
         """The Resolve tuning lab: the effect plus a live parameter panel."""
         return FileResponse(WEB_DIR / "lab.html")
+
+    @web.post("/api/anon/frame")
+    async def anon_frame(request: Request, mode: str = "basic", blur: int = 51):
+        """One frame of the browser-webcam anonymizer: JPEG in, JPEG out."""
+        if mode not in ("basic", "perfect"):
+            return Response("mode must be basic or perfect", status_code=400)
+        blur = min(max(blur, 11), 151)
+        jpeg = await request.body()
+        # The model call blocks for tens of milliseconds or more, so it runs
+        # on a worker thread rather than stalling the server's event loop.
+        result = await run_in_threadpool(anon_browser_frame, jpeg, mode, blur)
+        if result is None:
+            return Response("body is not a readable image", status_code=400)
+        return Response(result, media_type="image/jpeg")
 
     @web.get("/api/status")
     def status():
@@ -1138,7 +1397,7 @@ def main():
     print(f"  landing  {url}")
     print(f"  app      {url}/app")
     if HEADLESS:
-        print("  headless mode: live webcam windows are disabled.")
+        print("  headless mode: live webcam streams through the browser.")
     print("  Ctrl+C to quit.\n")
 
     if OPEN_BROWSER:

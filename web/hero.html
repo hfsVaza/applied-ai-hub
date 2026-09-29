@@ -117,7 +117,9 @@
     pointer-events: none;
   }
   #picks.live .pick { pointer-events: auto; }
-  .pick i { font-style: normal; font-size: clamp(11px, 0.8vw, 15px); letter-spacing: 0.22em; opacity: 0.5; }
+  /* Three levels of strength: title (full), number and subtitle (a step
+     down), poured particles (faintest, set by meltFade in the script). */
+  .pick i { font-style: normal; font-size: clamp(11px, 0.8vw, 15px); letter-spacing: 0.22em; opacity: 0.8; font-weight: 500; }
   .pick b {
     font-size: clamp(20px, 2.5vw, 44px);
     /* Tracking has to come down as the size goes up, or the longest label
@@ -128,7 +130,7 @@
   .pick { min-height: clamp(240px, 32vh, 360px); align-content: center; }
   .pick span {
     font-size: clamp(11px, 0.8vw, 15px);
-    letter-spacing: 0.08em; opacity: 0.66; text-transform: uppercase; line-height: 1.45;
+    letter-spacing: 0.08em; opacity: 0.9; font-weight: 500; text-transform: uppercase; line-height: 1.45;
   }
   .pick:hover { background: var(--wine); color: var(--silver); }
   .pick:hover b, .pick:hover i, .pick:hover span { position: relative; z-index: 1; }
@@ -221,7 +223,10 @@ const FILM = {
 
 const MELT = {
   meltFloor: 0.635, meltPile: 0.055, meltStagger: 0.42,
-  meltConverge: 1, meltSpread: 0.045, meltFade: 0.42,
+  // meltFade is high so the material settling in the buttons ends up clearly
+  // lighter than the button labels, which keeps the text the strongest thing
+  // on the end card.
+  meltConverge: 1, meltSpread: 0.045, meltFade: 0.72,
   morphScatter: 0.035, morphSag: 0.05,
 };
 
@@ -508,10 +513,20 @@ async function mountDebug({ lenis, track }) {
 
   // The jump to the end happens inside wire(), underneath the preloader, so
   // the film is never seen racing past.
-  if (AT_END) bootEl.style.transition = 'opacity 180ms linear';
+  if (AT_END) {
+    bootEl.style.transition = 'opacity 180ms linear';
+    // The scroll cue belongs to the top of the film. Its normal 450ms fade
+    // outlasts the preloader's 180ms one, so it would flash over the end
+    // card; hide it instantly here and restore the fade once settled.
+    hintEl.style.transition = 'none';
+    hintEl.style.opacity = '0';
+  }
   wire();
   bootEl.classList.add('done');
-  setTimeout(() => bootEl.remove(), AT_END ? 220 : 800);
+  setTimeout(() => {
+    bootEl.remove();
+    hintEl.style.transition = '';
+  }, AT_END ? 220 : 800);
   frame();
 })();
 </script>

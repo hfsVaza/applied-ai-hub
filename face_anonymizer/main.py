@@ -48,7 +48,10 @@ BOX_PADDING = 0.3
 # processing; live video lowers it so the window stays responsive.
 MAX_PARSE_SIZE = 512
 LIVE_PARSE_SIZE = 320
-MIN_PARSE_SIZE = 128
+# Below ~192px the parsing model stops recognising a face at all: a 128px pass
+# over a webcam face labelled 0% of it as skin, so perfect mode blurred
+# nothing. 256px found the face reliably.
+MIN_PARSE_SIZE = 256
 
 
 def open_video_writer(path, fps, size):
@@ -163,8 +166,9 @@ class FaceAnonymizer:
         A detected face is often only ~200px across, so forcing it up to
         512x512 spends roughly three times the compute to invent detail that
         was never in the pixels. Sizing to the crop (rounded to a multiple of
-        32 for the model's patch grid) never upsamples, so it cannot lose real
-        information, and it is dramatically faster on small faces.
+        32 for the model's patch grid) is dramatically faster on large crops.
+        Crops smaller than MIN_PARSE_SIZE are still upsampled to it, because
+        the model cannot find a face in a very small input.
         """
         largest = max(max(roi.shape[0], roi.shape[1]) for roi in rois)
         target = min(self.parse_size, max(MIN_PARSE_SIZE, largest))

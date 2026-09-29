@@ -14,8 +14,9 @@ services:
       # Downloaded model weights. Without this every rebuild refetches them.
       - model-cache:/cache
     environment:
-      # No display and no camera in here, so the live webcam windows are off.
-      # Everything else — uploads, video files, search — works normally.
+      # No display and no camera in here, so instead of native windows the
+      # live webcam streams through the browser. Open http://localhost:7860
+      # (not an IP address): browsers only allow the camera on localhost/HTTPS.
       HUB_HEADLESS: "1"
       HUB_HOST: "0.0.0.0"
       HUB_PORT: "7860"

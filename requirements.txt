@@ -16,7 +16,7 @@ torchvision>=0.17
 transformers>=4.40
 
 # Face detection and pose estimation
-mediapipe>=0.10.14
+mediapipe>=0.10.14,<0.11  # 1.0.x aborts on macOS (Metal "Service is unavailable")
 
 # Semantic search
 sentence-transformers>=3.0
