@@ -41,11 +41,20 @@ the container is rebuilt:
 | `./semantic_search/data` | The document library and its search index |
 | `model-cache` volume | Model weights, downloaded on first use |
 
-**The live webcam is off in the container.** It draws native OpenCV windows and
-opens `/dev/video0`, neither of which exists inside one; the buttons say so if
-you press them. Everything else — image and video upload, depth export, the
-document library, search — works exactly as it does locally. Run `python hub.py`
-on the host when you want the camera.
+**The live webcam streams through the browser in the container.** There is no
+camera or display inside one, so instead of native OpenCV windows the browser
+opens the webcam and sends frames to the server, which sends the processed
+frames back. The anonymizer starts as soon as you allow camera access; the rep
+counter starts when you press record. Browsers only allow the camera on
+`localhost` or HTTPS, so open **http://localhost:7860**, not an IP address.
+Everything else works exactly as it does locally.
+
+**Give Docker Desktop at least 4 GB of memory** (Settings → Resources → Memory).
+The anonymizer's **perfect** mode loads a face-parsing model through PyTorch,
+and with Docker Desktop's default of about 2 GB the container runs out of memory
+the moment you switch to it: the kernel kills the process, Docker restarts it,
+and the page reloads without any error message. `docker events --filter
+event=oom` shows it happening. Basic mode and the other projects fit in 2 GB.
 
 The container reads four environment variables, so the same image also runs
 outside Compose:
@@ -54,7 +63,7 @@ outside Compose:
 |---|---|---|
 | `HUB_HOST` | `127.0.0.1` | `0.0.0.0` in the image, so the port maps out |
 | `HUB_PORT` | `7860` | |
-| `HUB_HEADLESS` | off | `1` disables the webcam windows |
+| `HUB_HEADLESS` | off | `1` streams the webcam through the browser instead of native windows |
 | `HUB_OPEN_BROWSER` | on | `0` stops it launching a browser on startup |
 
 ```bash
