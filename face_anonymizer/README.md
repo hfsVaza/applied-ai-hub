@@ -72,12 +72,18 @@ A hybrid two-stage pipeline, for both speed and precision:
 
 1. **Face detection (MediaPipe).** `mediapipe.tasks.vision.FaceDetector` runs a
    lightweight BlazeFace model over the whole frame and returns a bounding box
-   per face. This is cheap enough to run on every frame in real time.
+   per face. This is cheap enough to run on every frame in real time. The
+   bundled model is BlazeFace **short-range**, which MediaPipe designs for
+   faces close to the camera (selfie and webcam distance). Detections below a
+   confidence of `0.5` are discarded, and each box is grown by 30%
+   (`BOX_PADDING`) because BlazeFace crops tightly and can clip the chin and
+   hairline.
 2. **Face parsing (Transformers / PyTorch).** A
    `SegformerForSemanticSegmentation` model (`jonathandinu/face-parsing`)
-   classifies every pixel into one of 18 categories. Crucially it runs only on
-   the *cropped boxes* from stage 1, not the whole image — the reason the
-   pipeline is fast enough to be usable at all.
+   classifies every pixel into one of 19 classes (background plus 18 face and
+   body parts). Crucially it runs only on the *cropped boxes* from stage 1,
+   not the whole image — the reason the pipeline is fast enough to be usable
+   at all.
 
 The mask is built from the classes that carry identity: skin, nose, eyes,
 brows, mouth, lips, and eyeglasses. Hair is deliberately **excluded**: it does
@@ -85,7 +91,19 @@ not identify a person the way facial features do, and blurring it produces an
 obvious smeared halo around the head.
 
 ### Anonymization method and irreversibility
-The method is a **Gaussian blur** applied through the semantic mask.
+The method is a **Gaussian blur** (`cv2.GaussianBlur`):
+
+* **basic** blurs the whole padded detection box.
+* **perfect** blurs the box, then blends the blurred and original pixels
+  through the face mask, so only identity pixels are replaced. The mask is
+  itself softened with a 15×15 Gaussian so the edge fades rather than cuts.
+
+The kernel size defaults to 51 and can be set from 11 to 151 in the UI; even
+values are rounded up to odd, as OpenCV requires.
+
+Before segmentation each face crop is resized to its own size, clamped between
+256 and 512 pixels (at most 320 for live video, to keep it responsive). The
+lower bound matters: see *Small faces in perfect mode* below.
 
 **Is it truly irreversible?** Not in the strict cryptographic sense, and it is
 important not to overclaim here. A Gaussian blur is a convolution, and a small
@@ -120,9 +138,32 @@ keeps the video watchable, which is the actual use case.
     The mask is feathered with a Gaussian blur before blending so the
     transition is soft rather than a hard-edged cutout.
 
+#### Observed during testing
+* **Small faces in perfect mode.** A webcam face at 640×480 gives a box of
+  roughly 130 px. Segmented at that size the parser labelled **0%** of the face
+  as skin or features, so perfect mode blurred nothing while basic mode blurred
+  the box. Segmented at 192 px it found 16% of the box, at 256 px 25%. The
+  crop is therefore always upscaled to at least 256 px (`MIN_PARSE_SIZE`).
+* **Beards and hair stay sharp in perfect mode.** This follows from the
+  excluded classes above and was visible on the bearded face in the gym clip
+  in `samples/`. A distinctive beard or hairstyle can still identify someone;
+  use basic mode when that matters.
+* **Distant faces are missed.** On a full frame of that same clip, where the
+  athlete stands well back from the camera, the short-range detector found no
+  face at all, so neither mode blurred it. Enlarged, the same face was
+  detected.
+* **Speed on CPU.** In the Docker container (CPU only), one 640×480 frame
+  took about 15–50 ms in basic mode and about 0.6–1.5 s in perfect mode, so
+  perfect mode runs at roughly one frame per second without a GPU.
+* **Memory.** Perfect mode loads the face-parsing model through PyTorch. With
+  Docker Desktop's default of about 2 GB, switching to it got the container
+  killed for running out of memory; 4 GB was enough.
+
 ### Privacy and ethical considerations
 * **Local processing.** Everything runs locally; no image or video frame is
-  ever transmitted. This aligns with GDPR data-minimisation principles.
+  ever transmitted. This aligns with GDPR data-minimisation principles. In the
+  Docker container the browser sends webcam frames to the hub's own server on
+  `localhost`, which anonymizes them in memory and never writes them to disk.
 * **False negatives are the real risk.** A false positive — blurring a
   background object — is merely annoying. A false negative is a privacy breach,
   and it only takes one. Motion blur, a sudden lighting change, or a turned
@@ -136,5 +177,7 @@ keeps the video watchable, which is the actual use case.
 ### Sources & documentation
 * [MediaPipe Face Detection](https://developers.google.com/mediapipe/solutions/vision/face_detector)
 * [HuggingFace Segformer](https://huggingface.co/docs/transformers/model_doc/segformer)
+* [`jonathandinu/face-parsing` model card](https://huggingface.co/jonathandinu/face-parsing)
+  (the 19 face-parsing classes and their ids)
 * [OpenCV Python tutorials](https://docs.opencv.org/4.x/d6/d00/tutorial_py_root.html)
 * Course reading: "Face Detection and Image/Video Anonymization"

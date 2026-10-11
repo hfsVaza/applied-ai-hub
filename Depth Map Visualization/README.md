@@ -90,12 +90,21 @@ visualise them:
 1. Find the minimum (`d_min`) and maximum (`d_max`) in the array.
 2. Scale linearly to 0.0–1.0.
 3. Multiply by 255 and cast to `uint8`.
+4. With the invert option, flip it (`255 - value`).
+
+If every pixel has the same value (`d_max == d_min`) the map is returned as
+all zeros instead of dividing by zero.
 
 Because the scaling is per-image, normalisation is what makes the map
 *displayable* but also what makes it *non-comparable* between images.
 
 ### 4. Colour mapping
-The 0–255 values are mapped onto a `matplotlib` gradient.
+The 0–255 values are mapped onto a `matplotlib` gradient. The default is
+**`inferno`**; `gray`, `magma`, `plasma`, `viridis` and `turbo` are also
+available. Since the models predict inverse depth, bright means **near** and
+dark means **far** by default; the invert option swaps that. The optional
+colorbar legend runs from 0 to 255 and has no units, because the values are
+relative.
 - **Grayscale** is best for numerical inspection and reading raw structure.
 - **Colorized** is far better for human inspection: the eye resolves small
   changes in hue much more readily than small changes in brightness, so subtle
@@ -128,7 +137,21 @@ The 0–255 values are mapped onto a `matplotlib` gradient.
   - **Thin structures** such as railings or hair, which fall below the model's
     effective resolution and get absorbed into the background.
 
-### 7. Privacy, Safety, and Misuse
+### 7. Limitations
+- **Video frames are normalised one at a time.** Each frame is scaled by its
+  own minimum and maximum, so the same wall can change shade from frame to
+  frame when something nearer or farther enters the shot.
+- **No real scale in the 3D exports.** The point cloud and mesh inherit the
+  relative depth, and the focal length is a stand-in (`max(width, height)`)
+  rather than the real camera's. Their shape is plausible, but their
+  proportions and distances are not measurements.
+- **The mesh is coarse.** It is downsampled to 256×256 vertices, so fine
+  detail visible in the depth image is lost in the mesh.
+- **Speed.** Every frame is a full model pass, so long videos take a long time
+  without a GPU. The Small model is the default because it is by far the
+  smallest of the three.
+
+### 8. Privacy, Safety, and Misuse
 **Misuse as metric data.** The main safety concern is treating relative depth as
 if it were metric. Used in an autonomous vehicle or a robot without LiDAR or
 stereo validation, these values could produce badly wrong stopping distances.

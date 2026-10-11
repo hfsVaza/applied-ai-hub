@@ -23,9 +23,12 @@ directly:
 | **Hybrid** | Reciprocal rank fusion of both | General use; catches what either alone misses |
 
 **Meta-feature:** the corpus is the documentation for this very hub. The engine
-indexes the four project READMEs **live, in place**, so the index can never
-describe an out-of-date version of the documentation. Anything added through
-the Document Library is indexed alongside them.
+indexes five READMEs **live, in place**: the four project READMEs and the
+hub's own top-level README. The index therefore can never describe an
+out-of-date version of the documentation. Anything added through the Document
+Library is indexed alongside them, as are any `.md` or `.txt` files placed
+directly in `semantic_search/data/` (files whose name starts with `_` are
+skipped, so the folder's own note is not indexed).
 
 ## The Document Library
 
@@ -104,12 +107,21 @@ Each chunk carries its source file, document title, section heading, and index.
   which for normalised vectors is mathematically identical to **cosine
   similarity**. A score near 1.0 means near-identical meaning.
 - **Keyword:** query and documents are mapped into a sparse bag-of-words TF-IDF
-  space and compared by cosine similarity, based purely on word overlap.
+  space (English stop words removed) and compared by cosine similarity, based
+  purely on word overlap. Passages that share no words with the query (score
+  0) are dropped rather than returned.
 - **Hybrid:** the two score scales are not comparable, so a raw weighted sum
   would be meaningless. The modes are fused by **rank** instead, using
   reciprocal rank fusion: each result contributes `weight / (60 + rank)` from
   each ranking it appears in. The constant 60 is the standard damping term; it
-  stops a single first-place hit from dominating the fused ordering.
+  stops a single first-place hit from dominating the fused ordering. Semantic
+  ranks carry a weight of 0.65 and keyword ranks 0.35, and each method
+  contributes its top 3 × *k* candidates, so a passage just outside one
+  method's top *k* can still be lifted by the other.
+
+**Ranking.** In every mode the results are sorted by score, highest first, and
+the top *k* (3 by default) are returned with their score, source file and
+section heading.
 
 ### 4. What kinds of queries work well vs. are difficult?
 - **Semantic search works well with:** vague natural-language questions ("how

@@ -84,6 +84,25 @@ nothing at all.
 - **Jumping Jack:** arms overhead is extended (above 120°), arms at the sides
   is flexed (below 45°).
 
+Three more rules sit around those thresholds:
+
+- **Smoothing.** Each raw angle is blended into a running average,
+  `smoothed = 0.3 × new + 0.7 × previous`, before it is compared with the
+  thresholds. A single jittery frame therefore cannot cross a threshold on its
+  own.
+- **Visibility.** If any of the three landmarks for a side has a visibility
+  score below `0.5`, that side is skipped for the frame: its phase and count
+  are frozen rather than updated from a guessed position.
+- **Left, right, and total.** Each side keeps its own phase and count. For
+  exercises that move one side at a time (Bicep Curl, Lunge) the total is
+  left + right. For exercises where both sides move together (Squat,
+  Push-up, Jumping Jack) the total is the larger of the two, so one squat is
+  not counted twice.
+
+The on-screen **Front / Side** label comes from the horizontal gap between
+the two shoulders: wider than 12% of the frame width is reported as Front,
+otherwise Side.
+
 ### 4. What kinds of videos work well vs. are difficult?
 - **Works well:** footage shot side-on or at a slight angle, well lit, with the
   tracked joints unoccluded and the whole limb in frame. Controlled,
